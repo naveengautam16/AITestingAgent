@@ -1,0 +1,6 @@
+# Test Data Configuration
+# Format: key=value
+
+url=https://www.google.com
+version=non-headless
+# version options: headless (runs in background) or non-headless (visible browser)
