@@ -4,38 +4,19 @@ import os
 from datetime import datetime
 from commonMethods import BrowserOperations
 
-# This class acts as the main controller/orchestrator for browser automation
-# Operations include:
-# - Loading test configuration from external data files (envTestData.txt)
-# - Dynamic initialization of BrowserOperations with runtime parameters
-# - Coordinating browser operations through BrowserOperations class
-# - Managing test execution flow and parameter handling
-# - Providing clean interface for running browser tests
-# - Handling test data parsing and validation
-# - Runtime browser mode configuration based on version parameter
-# - Comprehensive logging system for all agent operations
-# - Test data file loading with parameter parsing and validation
-# - Action tracking with timestamps and execution status
-# - Error handling and exception logging for debugging
-# - Log file management with automatic timestamp-based naming
 class BrowserAgent:
     def __init__(self):
         """
-        Initialize the Browser Agent with logging system
-        Sets up comprehensive logging for all agent operations
+        Initialize the Browser Agent
         """
         self.browser_ops = None
         self.test_params = None
         
         # Setup logging
         self.setup_logging()
-        self.logger.info("BrowserAgent initialized")
         
     def setup_logging(self):
-        """
-        Setup comprehensive logging configuration with file and console output
-        Creates timestamped log files in the logs directory for agent operations
-        """
+        """Setup logging configuration"""
         # Create logs directory if it doesn't exist
         logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
         os.makedirs(logs_dir, exist_ok=True)
@@ -69,7 +50,6 @@ class BrowserAgent:
     def load_test_data(self, file_path="TestData/envTestData.txt"):
         """
         Load test parameters from text file
-        Parses key=value format
         
         Args:
             file_path (str): Path to the test data file
@@ -114,7 +94,6 @@ class BrowserAgent:
 async def main():
     """
     Main execution function
-    Orchestrates the complete browser test workflow
     """
     # Create an instance of the Browser Agent
     agent = BrowserAgent()
@@ -131,9 +110,6 @@ async def main():
         print(f"URL: {test_params.get('url')}")
         print(f"Version: {test_params.get('version')}")
         
-        # Use default timeout
-        timeout = 5000
-        
         # Setup browser (headless mode determined from test data)
         await agent.browser_ops.setup_browser()
         
@@ -148,7 +124,7 @@ async def main():
         print(f"Current URL: {current_url}")
         
         # Wait for default timeout
-        await agent.browser_ops.wait(timeout)
+        await agent.browser_ops.wait(5000)
         
         print(f"--- Test Completed ---\n")
             

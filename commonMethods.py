@@ -4,22 +4,10 @@ import os
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-# This class handles all browser-related operations using Playwright
-# Operations include:
-# - Browser initialization and setup with runtime configuration from test data
-# - Automatic headless/non-headless mode detection based on version parameter
-# - URL navigation and page loading with comprehensive logging
-# - Page information retrieval (title, current URL) with action tracking
-# - Wait operations for timing control with duration logging
-# - Browser cleanup and resource management with detailed status logging
-# - Test parameter integration for dynamic browser configuration
-# - Comprehensive logging system for all browser operations
-# - Error handling and exception logging for debugging
-# - Action tracking with timestamps and operation status
 class BrowserOperations:
     def __init__(self, test_params=None):
         """
-        Initialize Browser Operations class with logging and test parameters
+        Initialize Browser Operations class
         
         Args:
             test_params (dict): Test parameters including version (headless/non-headless)
@@ -31,13 +19,9 @@ class BrowserOperations:
         
         # Setup logging
         self.setup_logging()
-        self.logger.info("BrowserOperations initialized")
         
     def setup_logging(self):
-        """
-        Setup comprehensive logging configuration with file and console output
-        Creates timestamped log files in the logs directory
-        """
+        """Setup logging configuration"""
         # Create logs directory if it doesn't exist
         logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
         os.makedirs(logs_dir, exist_ok=True)
@@ -71,7 +55,6 @@ class BrowserOperations:
     async def setup_browser(self):
         """
         Setup Playwright browser based on test parameters
-        Reads version from test_params to determine headless mode
         """
         # Determine headless mode from test parameters
         version = self.test_params.get('version', 'headless')
@@ -84,6 +67,7 @@ class BrowserOperations:
         # Set viewport size to normal browser dimensions
         await self.page.set_viewport_size({"width": 1366, "height": 768})
         
+        self.logger.info(f"Browser opened successfully - Mode: {version}")
         print(f"Chrome browser initialized successfully with Playwright (headless={headless})")
         print(f"Browser mode: {version}")
         
@@ -150,4 +134,5 @@ class BrowserOperations:
         self.page = None
         self.playwright = None
         
+        self.logger.info("Browser closed successfully")
         print("Browser closed successfully")
