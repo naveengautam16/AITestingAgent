@@ -1,6 +1,6 @@
 # Test Data Configuration
 # Format: key=value
 
-url=https://www.google.com
+url=https://gemini.google.com/app
 version=non-headless
 # version options: headless (runs in background) or non-headless (visible browser)
