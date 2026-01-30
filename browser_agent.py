@@ -116,12 +116,16 @@ async def main():
         # Open the URL
         await agent.browser_ops.open_url(test_params.get('url'))
         
+        # Enter "HI" in the input field and get response
+        response = await agent.browser_ops.enter_text_and_get_response("HI")
+        
         # Get page information
         title = await agent.browser_ops.get_page_title()
         current_url = await agent.browser_ops.get_current_url()
         
         print(f"Page Title: {title}")
         print(f"Current URL: {current_url}")
+        print(f"Gemini Response: {response}")
         
         # Wait for default timeout
         await agent.browser_ops.wait(5000)

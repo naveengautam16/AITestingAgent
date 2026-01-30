@@ -69,7 +69,6 @@ class BrowserOperations:
         
         self.logger.info(f"Browser opened successfully - Mode: {version}")
         print(f"Chrome browser initialized successfully with Playwright (headless={headless})")
-        print(f"Browser mode: {version}")
         
     async def open_url(self, url):
         """
@@ -84,7 +83,6 @@ class BrowserOperations:
         try:
             await self.page.goto(url, wait_until="domcontentloaded")
             print(f"Navigating to: {url}")
-            print(f"Successfully opened: {url}")
             
         except Exception as e:
             print(f"Error opening URL: {e}")
@@ -120,6 +118,141 @@ class BrowserOperations:
             milliseconds (int): Time to wait in milliseconds
         """
         await self.page.wait_for_timeout(milliseconds)
+        
+    async def enter_text_and_get_response(self, text):
+        """
+        Enter text in Gemini input field and capture the response
+        
+        Args:
+            text (str): Text to enter in the input field
+            
+        Returns:
+            str: Response from Gemini
+        """
+        try:
+            # Wait for the input field to be available
+            await self.page.wait_for_selector('textarea, input[type="text"], [contenteditable="true"]', timeout=10000)
+            
+            # Find the input field (Gemini uses various selectors)
+            input_selectors = [
+                'textarea[placeholder*="Enter"]',
+                'textarea[placeholder*="prompt"]',
+                'textarea[placeholder*="ask"]',
+                'textarea',
+                'input[type="text"]',
+                '[contenteditable="true"]',
+                '[data-testid="prompt-textarea"]',
+                '.ql-editor'
+            ]
+            
+            input_element = None
+            for selector in input_selectors:
+                try:
+                    input_element = await self.page.query_selector(selector)
+                    if input_element:
+                        # Check if it's visible and editable
+                        is_visible = await input_element.is_visible()
+                        is_enabled = await input_element.is_enabled()
+                        if is_visible and is_enabled:
+                            break
+                except:
+                    continue
+            
+            if not input_element:
+                self.logger.error("Could not find input field on the page")
+                return "Error: Could not find input field"
+            
+            # Clear any existing text and enter new text
+            await input_element.click()
+            await input_element.fill("")  # Clear existing text
+            await input_element.type(text, delay=100)  # Type with delay for natural typing
+            
+            self.logger.info(f"Entered text: {text}")
+            
+            # Wait a moment for the send button to appear
+            await self.page.wait_for_timeout(1000)
+            
+            # Find and click the send button
+            send_selectors = [
+                'button[aria-label*="Send"]',
+                'button[aria-label*="submit"]',
+                'button[type="submit"]',
+                'button[data-testid="send-button"]',
+                '.send-button',
+                'button:has(svg)',
+                'button:last-child'
+            ]
+            
+            send_button = None
+            for selector in send_selectors:
+                try:
+                    send_button = await self.page.query_selector(selector)
+                    if send_button:
+                        is_visible = await send_button.is_visible()
+                        is_enabled = await send_button.is_enabled()
+                        if is_visible and is_enabled:
+                            break
+                except:
+                    continue
+            
+            if send_button:
+                await send_button.click()
+                self.logger.info("Clicked send button")
+            else:
+                # Try pressing Enter as fallback
+                await input_element.press("Enter")
+                self.logger.info("Pressed Enter to send")
+            
+            # Wait for response to appear
+            await self.page.wait_for_timeout(3000)
+            
+            # Look for response in various possible locations
+            response_selectors = [
+                '[data-message-author-role="assistant"]',
+                '.response-text',
+                '.gemini-response',
+                '[data-testid="conversation-turn-1"]',
+                '.markdown',
+                '.response-content',
+                'div[class*="response"]',
+                'div[class*="answer"]'
+            ]
+            
+            response_text = ""
+            for selector in response_selectors:
+                try:
+                    response_element = await self.page.query_selector(selector)
+                    if response_element:
+                        response_text = await response_element.text_content()
+                        if response_text and len(response_text.strip()) > 0:
+                            break
+                except:
+                    continue
+            
+            # If no specific response found, try to get the last message
+            if not response_text or len(response_text.strip()) == 0:
+                try:
+                    # Get all text content and try to extract the last meaningful response
+                    all_text = await self.page.text_content('body')
+                    lines = all_text.split('\n')
+                    # Look for non-empty lines that might be responses
+                    for line in reversed(lines):
+                        if line.strip() and len(line.strip()) > 10 and line.strip() != text:
+                            response_text = line.strip()
+                            break
+                except:
+                    pass
+            
+            if response_text:
+                self.logger.info(f"Captured response: {response_text[:100]}...")
+                return response_text.strip()
+            else:
+                self.logger.warning("Could not capture response")
+                return "No response captured"
+                
+        except Exception as e:
+            self.logger.error(f"Error entering text and getting response: {e}")
+            return f"Error: {str(e)}"
         
     async def close_browser(self):
         """
