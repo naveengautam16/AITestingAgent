@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import csv
 from datetime import datetime
 from playwright.async_api import async_playwright
 
@@ -61,7 +62,11 @@ class BrowserOperations:
         headless = version.lower() == 'headless'
         
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=headless)
+        # Use system Chrome instead of bundled Chromium
+        self.browser = await self.playwright.chromium.launch(
+            headless=headless,
+            executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        )
         self.page = await self.browser.new_page()
         
         # Set viewport size to normal browser dimensions
@@ -69,6 +74,7 @@ class BrowserOperations:
         
         self.logger.info(f"Browser opened successfully - Mode: {version}")
         print(f"Chrome browser initialized successfully with Playwright (headless={headless})")
+        print(f"Browser mode: {version}")
         
     async def open_url(self, url):
         """
@@ -81,8 +87,28 @@ class BrowserOperations:
             await self.setup_browser()
             
         try:
-            await self.page.goto(url, wait_until="domcontentloaded")
             print(f"Navigating to: {url}")
+            await self.page.goto(url, wait_until="domcontentloaded", timeout=15000)  # Reduced timeout
+            print(f"Successfully opened: {url}")
+            # Wait a bit for page to fully load
+            await self.page.wait_for_timeout(2000)
+            print("Page loaded, checking for authentication...")
+            
+            # Check if we need to handle authentication
+            try:
+                # Look for sign-in elements
+                sign_in_button = await self.page.query_selector('button:has-text("Sign in"), a:has-text("Sign in")')
+                if sign_in_button:
+                    print("Sign in button detected. Please sign in to Gemini manually.")
+                    print("The browser will stay open for you to sign in.")
+                    print("After signing in, press Enter to continue...")
+                    input("Press Enter after you have signed in to Gemini...")
+                    print("Continuing with the test...")
+            except:
+                pass
+            
+            print("Page appears to be ready for interaction")
+            return True
             
         except Exception as e:
             print(f"Error opening URL: {e}")
@@ -121,131 +147,283 @@ class BrowserOperations:
         
     async def enter_text_and_get_response(self, text):
         """
-        Enter text in Gemini input field and capture the response
+        Enter text in the input field and get response from the AI
         
         Args:
             text (str): Text to enter in the input field
             
         Returns:
-            str: Response from Gemini
+            str: The response from the AI
         """
-        try:
-            # Wait for the input field to be available
-            await self.page.wait_for_selector('textarea, input[type="text"], [contenteditable="true"]', timeout=10000)
+        if not self.page:
+            raise Exception("Browser not initialized")
             
-            # Find the input field (Gemini uses various selectors)
+        input_field = None
+        send_found = False
+            
+        try:
+            print(f"Looking for input field to enter: '{text}'")
+            
+            # First, let's see what's actually on the page
+            print("Checking page content...")
+            page_content = await self.page.content()
+            print(f"Page title: {await self.page.title()}")
+            
+            # Try different selectors for Easemate input field
             input_selectors = [
-                'textarea[placeholder*="Enter"]',
-                'textarea[placeholder*="prompt"]',
+                'textarea[placeholder*="message"]',
+                'textarea[placeholder*="Message"]',
                 'textarea[placeholder*="ask"]',
-                'textarea',
+                'textarea[placeholder*="Ask"]',
+                'textarea[placeholder*="Type"]',
+                'textarea[placeholder*="type"]',
                 'input[type="text"]',
+                'input[placeholder*="message"]',
+                'input[placeholder*="Message"]',
+                'textarea',
                 '[contenteditable="true"]',
-                '[data-testid="prompt-textarea"]',
-                '.ql-editor'
+                '.input-field',
+                '.chat-input',
+                '#message-input',
+                'input[placeholder*="Type"]',
+                'div[role="textbox"]',
+                '[role="textbox"]',
+                'div[contenteditable="true"]'
             ]
             
-            input_element = None
+            input_found = False
+            
             for selector in input_selectors:
                 try:
-                    input_element = await self.page.query_selector(selector)
-                    if input_element:
-                        # Check if it's visible and editable
-                        is_visible = await input_element.is_visible()
-                        is_enabled = await input_element.is_enabled()
-                        if is_visible and is_enabled:
+                    print(f"Trying selector: {selector}")
+                    elements = await self.page.query_selector_all(selector)
+                    print(f"Found {len(elements)} elements with selector: {selector}")
+                    
+                    if elements:
+                        for i, element in enumerate(elements):
+                            try:
+                                placeholder = await element.get_attribute('placeholder')
+                                visible = await element.is_visible()
+                                print(f"  Element {i}: placeholder='{placeholder}', visible={visible}")
+                                if visible:
+                                    input_field = element
+                                    input_found = True
+                                    print(f"  Using this element!")
+                                    break
+                            except:
+                                pass
+                        
+                        if input_found:
                             break
-                except:
+                except Exception as e:
+                    print(f"  Error with selector {selector}: {e}")
                     continue
             
-            if not input_element:
-                self.logger.error("Could not find input field on the page")
-                return "Error: Could not find input field"
+            if not input_found:
+                # Try a more generic approach
+                print("Trying generic approach...")
+                all_inputs = await self.page.query_selector_all('input, textarea, [contenteditable="true"], [role="textbox"]')
+                print(f"Found {len(all_inputs)} total input-like elements")
+                
+                for i, element in enumerate(all_inputs):
+                    try:
+                        visible = await element.is_visible()
+                        if visible:
+                            print(f"  Visible element {i}: {element}")
+                            input_field = element
+                            input_found = True
+                            break
+                    except:
+                        pass
             
-            # Clear any existing text and enter new text
-            await input_element.click()
-            await input_element.fill("")  # Clear existing text
-            await input_element.type(text, delay=100)  # Type with delay for natural typing
+            if not input_found or not input_field:
+                raise Exception("Could not find any visible input field")
             
-            self.logger.info(f"Entered text: {text}")
+            print(f"Found input field, entering text...")
+            await input_field.click()
+            await input_field.fill("")  # Clear any existing text
+            await input_field.type(text, delay=100)
             
-            # Wait a moment for the send button to appear
+        except Exception as e:
+            print(f"Error in input field handling: {e}")
+            raise
+        
+        try:
+            # Wait a moment before sending
             await self.page.wait_for_timeout(1000)
             
-            # Find and click the send button
+            print("Looking for send button...")
+            
+            # Try different selectors for send button
             send_selectors = [
-                'button[aria-label*="Send"]',
-                'button[aria-label*="submit"]',
                 'button[type="submit"]',
-                'button[data-testid="send-button"]',
+                'button:has-text("Send")',
+                'button:has-text("send")',
+                'button:has-text("Submit")',
+                'button:has-text("submit")',
+                'button[aria-label*="Send"]',
+                'button[aria-label*="send"]',
                 '.send-button',
+                '.send-btn',
+                'button svg',
                 'button:has(svg)',
-                'button:last-child'
+                'button[class*="send"]',
+                'button[class*="submit"]',
+                'button[class*="arrow"]',
+                'button[class*="right"]'
             ]
             
-            send_button = None
             for selector in send_selectors:
                 try:
-                    send_button = await self.page.query_selector(selector)
-                    if send_button:
-                        is_visible = await send_button.is_visible()
-                        is_enabled = await send_button.is_enabled()
-                        if is_visible and is_enabled:
-                            break
+                    elements = await self.page.query_selector_all(selector)
+                    print(f"Found {len(elements)} elements with selector: {selector}")
+                    
+                    for element in elements:
+                        try:
+                            visible = await element.is_visible()
+                            if visible:
+                                print(f"Found send button with selector: {selector}")
+                                await element.click()
+                                send_found = True
+                                break
+                        except:
+                            pass
+                    
+                    if send_found:
+                        break
                 except:
                     continue
             
-            if send_button:
-                await send_button.click()
-                self.logger.info("Clicked send button")
-            else:
-                # Try pressing Enter as fallback
-                await input_element.press("Enter")
-                self.logger.info("Pressed Enter to send")
+            if not send_found:
+                print("Send button not found, trying to press Enter")
+                try:
+                    # Focus back to input field before pressing Enter
+                    await input_field.click()
+                    await self.page.wait_for_timeout(500)
+                    
+                    # Try different Enter key combinations
+                    await self.page.keyboard.press("Enter")
+                    print("Pressed Enter")
+                    
+                    # If that doesn't work, try Shift+Enter
+                    await self.page.wait_for_timeout(1000)
+                    await self.page.keyboard.press("Shift+Enter")
+                    print("Pressed Shift+Enter")
+                    
+                except Exception as e:
+                    print(f"Error pressing Enter: {e}")
+                    # Try one more method
+                    await self.page.keyboard.press("Enter")
             
-            # Wait for response to appear
-            await self.page.wait_for_timeout(3000)
+            print("Message sent")
             
-            # Look for response in various possible locations
+            # Wait for response
+            print("Waiting for AI response...")
+            await self.page.wait_for_timeout(8000)  # Increased wait time
+            
+            # Check if page is still active
+            if self.page.is_closed():
+                raise Exception("Page was closed while waiting for response")
+            
+            # Try different selectors for response
             response_selectors = [
-                '[data-message-author-role="assistant"]',
-                '.response-text',
-                '.gemini-response',
-                '[data-testid="conversation-turn-1"]',
-                '.markdown',
+                '.message-content',
                 '.response-content',
+                '.ai-response',
+                '.chat-response',
+                '.message',
+                '.response',
+                '[data-testid*="response"]',
+                '[data-testid*="message"]',
+                '.prose',
+                '.markdown',
+                '.text-message',
+                '.chat-message',
+                '.conversation-turn',
+                '.bot-message',
+                '.assistant-message',
+                '.ai-message',
+                'div[class*="message"]',
                 'div[class*="response"]',
-                'div[class*="answer"]'
+                'div[class*="chat"]',
+                'p',
+                'div[class*="text"]'
             ]
             
+            print(f"Trying to capture response...")
             response_text = ""
+            
             for selector in response_selectors:
                 try:
-                    response_element = await self.page.query_selector(selector)
-                    if response_element:
-                        response_text = await response_element.text_content()
-                        if response_text and len(response_text.strip()) > 0:
+                    print(f"Trying response selector: {selector}")
+                    elements = await self.page.query_selector_all(selector)
+                    print(f"Found {len(elements)} elements with selector: {selector}")
+                    
+                    if elements:
+                        # Get the last few elements to find the most recent response
+                        for element in elements[-3:]:  # Check last 3 elements
+                            try:
+                                text = await element.text_content()
+                                visible = await element.is_visible()
+                                print(f"  Element text: {text[:50] if text else 'None'}..., visible: {visible}")
+                                
+                                if text and visible and len(text.strip()) > 20:  # Filter for substantial responses
+                                    # Make sure it's not our own message
+                                    if "HI" not in text or len(text.strip()) > 50:
+                                        response_text = text
+                                        print(f"Found response with selector: {selector}")
+                                        break
+                            except:
+                                pass
+                        
+                        if response_text:
                             break
-                except:
+                except Exception as e:
+                    print(f"  Error with selector {selector}: {e}")
                     continue
             
-            # If no specific response found, try to get the last message
-            if not response_text or len(response_text.strip()) == 0:
+            # If still no response, try to get all text content and parse
+            if not response_text:
+                print("Trying to extract response from page content...")
                 try:
-                    # Get all text content and try to extract the last meaningful response
-                    all_text = await self.page.text_content('body')
-                    lines = all_text.split('\n')
-                    # Look for non-empty lines that might be responses
-                    for line in reversed(lines):
-                        if line.strip() and len(line.strip()) > 10 and line.strip() != text:
-                            response_text = line.strip()
-                            break
-                except:
-                    pass
+                    # Wait a bit more for the response to appear
+                    await self.page.wait_for_timeout(3000)
+                    
+                    # Get all text content
+                    page_text = await self.page.evaluate('() => document.body.innerText')
+                    print(f"Page text length: {len(page_text)}")
+                    
+                    # Look for text that appears after "HI"
+                    if "HI" in page_text:
+                        parts = page_text.split("HI")
+                        if len(parts) > 1:
+                            # Get text after "HI" and clean it up
+                            after_hi = parts[-1].strip()
+                            lines = after_hi.split('\n')
+                            for line in lines:
+                                if line.strip() and len(line.strip()) > 20:
+                                    response_text = line.strip()
+                                    print(f"Extracted response from page content: {response_text[:100]}...")
+                                    break
+                except Exception as e:
+                    print(f"Error extracting from page content: {e}")
             
             if response_text:
-                self.logger.info(f"Captured response: {response_text[:100]}...")
-                return response_text.strip()
+                # Clean up the response text
+                cleaned_response = response_text.strip()
+                # Remove common UI elements that might be captured
+                ui_elements = [
+                    "Expand menu", "Use microphone", "New chat", "Edit prompt",
+                    "Stop response", "Continue", "Regenerate", "Copy", "Share"
+                ]
+                for element in ui_elements:
+                    cleaned_response = cleaned_response.replace(element, "")
+
+                # Clean up extra whitespace and format
+                cleaned_response = ' '.join(cleaned_response.split())
+
+                self.logger.info(f"Captured response: {cleaned_response[:100]}...")
+                return cleaned_response
             else:
                 self.logger.warning("Could not capture response")
                 return "No response captured"
@@ -253,6 +431,74 @@ class BrowserOperations:
         except Exception as e:
             self.logger.error(f"Error entering text and getting response: {e}")
             return f"Error: {str(e)}"
+        
+    def save_to_csv(self, question, response):
+        """
+        Save question and response to CSV file with fixed 20 rows and Question, Answer, Score columns
+        
+        Args:
+            question (str): The question asked
+            response (str): The response received
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Create TestData directory if it doesn't exist
+            test_data_dir = "TestData"
+            os.makedirs(test_data_dir, exist_ok=True)
+            
+            file_path = os.path.join(test_data_dir, "chatresponse.csv")
+            
+            # Check if file exists and has data
+            file_exists = os.path.exists(file_path)
+            
+            if not file_exists:
+                # Create new file with header and 20 empty rows
+                with open(file_path, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    # Write header
+                    writer.writerow(['Question', 'Answer', 'Score'])
+                    
+                    # Write 20 empty rows
+                    for i in range(20):
+                        writer.writerow(['', '', ''])
+            
+            # Read existing data
+            with open(file_path, 'r', encoding='utf-8') as file:
+                reader = csv.reader(file)
+                rows = list(reader)
+            
+            # Find first empty row (excluding header)
+            empty_row_index = None
+            for i in range(1, len(rows)):  # Skip header (index 0)
+                if len(rows[i]) >= 3 and not rows[i][0].strip():  # Empty Question column
+                    empty_row_index = i
+                    break
+            
+            if empty_row_index is None:
+                print("All 20 rows are filled. Cannot add more data.")
+                return False
+            
+            # Update the empty row
+            rows[empty_row_index][0] = question  # Question
+            rows[empty_row_index][1] = response  # Answer
+            rows[empty_row_index][2] = ""  # Score (empty for now)
+            
+            # Write back to file
+            with open(file_path, 'w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                writer.writerows(rows)
+            
+            self.logger.info(f"Successfully saved to CSV: {question[:50]}...")
+            print(f"Response saved to CSV file: {file_path}")
+            print(f"Data added to row {empty_row_index}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error saving to CSV: {e}")
+            print(f"Failed to save response to CSV: {e}")
+            return False
         
     async def close_browser(self):
         """

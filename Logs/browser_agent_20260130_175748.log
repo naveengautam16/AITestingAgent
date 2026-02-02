@@ -1,5 +1,0 @@
-2026-01-30 17:57:52,155 - BrowserOperations - INFO - Browser opened successfully - Mode: non-headless
-2026-01-30 17:57:55,437 - BrowserOperations - INFO - Entered text: HI
-2026-01-30 17:57:56,502 - BrowserOperations - INFO - Clicked send button
-2026-01-30 17:57:59,513 - BrowserOperations - INFO - Captured response: Hello! It's great to meet you.I'm Gemini, your adaptive AI collaborator. Whether you're looking to b...
-2026-01-30 17:58:04,643 - BrowserOperations - INFO - Browser closed successfully
