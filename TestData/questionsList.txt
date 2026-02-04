@@ -1,4 +1,4 @@
-Hi
-How are you
-What is the temperature today
-how many stattes are there in USA
+Hi chatbot ?
+How are you doing ?
+What is the temperature today in Australia
+How many states are there in USA ?

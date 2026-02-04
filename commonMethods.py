@@ -432,13 +432,14 @@ class BrowserOperations:
             self.logger.error(f"Error entering text and getting response: {e}")
             return f"Error: {str(e)}"
         
-    def save_to_csv(self, question, response):
+    def save_to_csv(self, question, response, reset_file=False):
         """
         Save question and response to CSV file with fixed 20 rows and Question, Answer, Score columns
         
         Args:
             question (str): The question asked
             response (str): The response received
+            reset_file (bool): Whether to reset the file (clear all data)
             
         Returns:
             bool: True if successful, False otherwise
@@ -450,11 +451,8 @@ class BrowserOperations:
             
             file_path = os.path.join(test_data_dir, "chatresponse.csv")
             
-            # Check if file exists and has data
-            file_exists = os.path.exists(file_path)
-            
-            if not file_exists:
-                # Create new file with header and 20 empty rows
+            # If reset_file is True, create a fresh file
+            if reset_file:
                 with open(file_path, 'w', newline='', encoding='utf-8') as file:
                     writer = csv.writer(file)
                     # Write header
@@ -463,6 +461,7 @@ class BrowserOperations:
                     # Write 20 empty rows
                     for i in range(20):
                         writer.writerow(['', '', ''])
+                print(f"CSV file reset: {file_path}")
             
             # Read existing data
             with open(file_path, 'r', encoding='utf-8') as file:

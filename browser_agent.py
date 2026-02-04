@@ -140,9 +140,10 @@ async def main():
             # Enter question and get response
             response = await agent.browser_ops.enter_text_and_get_response(question)
             
-            # Save to CSV
+            # Save to CSV (reset file on first question)
             if response and response != "No response captured" and not response.startswith("Error:"):
-                success = agent.browser_ops.save_to_csv(question, response)
+                reset_file = (i == 1)  # Reset file only for the first question
+                success = agent.browser_ops.save_to_csv(question, response, reset_file=reset_file)
                 if success:
                     print(f"✅ Question {i} saved to CSV successfully!")
                 else:
