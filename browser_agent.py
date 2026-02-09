@@ -138,7 +138,7 @@ async def main():
             print(f"Question: {question}")
             
             # Enter question and get response
-            response = await agent.browser_ops.enter_text_and_get_response(question)
+            response = await agent.browser_ops.enter_text_and_get_response(question, test_params.get('url'))
             
             # Save to CSV (reset file on first question)
             if response and response != "No response captured" and not response.startswith("Error:"):
