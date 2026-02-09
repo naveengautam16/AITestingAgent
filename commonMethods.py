@@ -4,6 +4,7 @@ import os
 import csv
 from datetime import datetime
 from playwright.async_api import async_playwright
+from locators.chatbot_locators import ChatbotLocators, LocatorUtils
 
 class BrowserOperations:
     def __init__(self, test_params=None):
@@ -97,7 +98,7 @@ class BrowserOperations:
             # Check if we need to handle authentication
             try:
                 # Look for sign-in elements
-                sign_in_button = await self.page.query_selector('button:has-text("Sign in"), a:has-text("Sign in")')
+                sign_in_button = await self.page.query_selector(ChatbotLocators.SIGN_IN_SELECTORS[0])
                 if sign_in_button:
                     print("Sign in button detected. Please sign in to Gemini manually.")
                     print("The browser will stay open for you to sign in.")
@@ -145,12 +146,13 @@ class BrowserOperations:
         """
         await self.page.wait_for_timeout(milliseconds)
         
-    async def enter_text_and_get_response(self, text):
+    async def enter_text_and_get_response(self, text, url=None):
         """
-        Enter text in the input field and get response from the AI
+        Enter text in the input field and get response from the AI using self-healing
         
         Args:
             text (str): Text to enter in the input field
+            url (str): URL for context-specific locators
             
         Returns:
             str: The response from the AI
@@ -169,75 +171,11 @@ class BrowserOperations:
             page_content = await self.page.content()
             print(f"Page title: {await self.page.title()}")
             
-            # Try different selectors for Easemate input field
-            input_selectors = [
-                'textarea[placeholder*="message"]',
-                'textarea[placeholder*="Message"]',
-                'textarea[placeholder*="ask"]',
-                'textarea[placeholder*="Ask"]',
-                'textarea[placeholder*="Type"]',
-                'textarea[placeholder*="type"]',
-                'input[type="text"]',
-                'input[placeholder*="message"]',
-                'input[placeholder*="Message"]',
-                'textarea',
-                '[contenteditable="true"]',
-                '.input-field',
-                '.chat-input',
-                '#message-input',
-                'input[placeholder*="Type"]',
-                'div[role="textbox"]',
-                '[role="textbox"]',
-                'div[contenteditable="true"]'
-            ]
+            # Use self-healing to find input field with URL context
+            input_field = await self.find_element_with_healing('input', url=url)
             
-            input_found = False
-            
-            for selector in input_selectors:
-                try:
-                    print(f"Trying selector: {selector}")
-                    elements = await self.page.query_selector_all(selector)
-                    print(f"Found {len(elements)} elements with selector: {selector}")
-                    
-                    if elements:
-                        for i, element in enumerate(elements):
-                            try:
-                                placeholder = await element.get_attribute('placeholder')
-                                visible = await element.is_visible()
-                                print(f"  Element {i}: placeholder='{placeholder}', visible={visible}")
-                                if visible:
-                                    input_field = element
-                                    input_found = True
-                                    print(f"  Using this element!")
-                                    break
-                            except:
-                                pass
-                        
-                        if input_found:
-                            break
-                except Exception as e:
-                    print(f"  Error with selector {selector}: {e}")
-                    continue
-            
-            if not input_found:
-                # Try a more generic approach
-                print("Trying generic approach...")
-                all_inputs = await self.page.query_selector_all('input, textarea, [contenteditable="true"], [role="textbox"]')
-                print(f"Found {len(all_inputs)} total input-like elements")
-                
-                for i, element in enumerate(all_inputs):
-                    try:
-                        visible = await element.is_visible()
-                        if visible:
-                            print(f"  Visible element {i}: {element}")
-                            input_field = element
-                            input_found = True
-                            break
-                    except:
-                        pass
-            
-            if not input_found or not input_field:
-                raise Exception("Could not find any visible input field")
+            if not input_field:
+                raise Exception("Could not find any visible input field with self-healing")
             
             print(f"Found input field, entering text...")
             await input_field.click()
@@ -254,47 +192,14 @@ class BrowserOperations:
             
             print("Looking for send button...")
             
-            # Try different selectors for send button
-            send_selectors = [
-                'button[type="submit"]',
-                'button:has-text("Send")',
-                'button:has-text("send")',
-                'button:has-text("Submit")',
-                'button:has-text("submit")',
-                'button[aria-label*="Send"]',
-                'button[aria-label*="send"]',
-                '.send-button',
-                '.send-btn',
-                'button svg',
-                'button:has(svg)',
-                'button[class*="send"]',
-                'button[class*="submit"]',
-                'button[class*="arrow"]',
-                'button[class*="right"]'
-            ]
+            # Use self-healing to find send button with URL context
+            send_button = await self.find_element_with_healing('send', url=url)
             
-            for selector in send_selectors:
-                try:
-                    elements = await self.page.query_selector_all(selector)
-                    print(f"Found {len(elements)} elements with selector: {selector}")
-                    
-                    for element in elements:
-                        try:
-                            visible = await element.is_visible()
-                            if visible:
-                                print(f"Found send button with selector: {selector}")
-                                await element.click()
-                                send_found = True
-                                break
-                        except:
-                            pass
-                    
-                    if send_found:
-                        break
-                except:
-                    continue
-            
-            if not send_found:
+            if send_button:
+                print("Found send button, clicking...")
+                await send_button.click()
+                send_found = True
+            else:
                 print("Send button not found, trying to press Enter")
                 try:
                     # Focus back to input field before pressing Enter
@@ -317,70 +222,108 @@ class BrowserOperations:
             
             print("Message sent")
             
+        except Exception as e:
+            print(f"Error in send button handling: {e}")
+            raise
+        
+        try:
             # Wait for response
             print("Waiting for AI response...")
-            await self.page.wait_for_timeout(8000)  # Increased wait time
+            await self.page.wait_for_timeout(10000)  # Increased wait time to 10 seconds
             
             # Check if page is still active
             if self.page.is_closed():
                 raise Exception("Page was closed while waiting for response")
             
-            # Try different selectors for response
-            response_selectors = [
-                '.message-content',
-                '.response-content',
-                '.ai-response',
-                '.chat-response',
-                '.message',
-                '.response',
-                '[data-testid*="response"]',
-                '[data-testid*="message"]',
-                '.prose',
-                '.markdown',
-                '.text-message',
-                '.chat-message',
-                '.conversation-turn',
-                '.bot-message',
-                '.assistant-message',
-                '.ai-message',
-                'div[class*="message"]',
-                'div[class*="response"]',
-                'div[class*="chat"]',
-                'p',
-                'div[class*="text"]'
-            ]
+            # Additional wait to ensure response is fully loaded
+            print("Ensuring response is fully loaded...")
+            await self.page.wait_for_timeout(2000)
             
             print(f"Trying to capture response...")
             response_text = ""
             
-            for selector in response_selectors:
-                try:
-                    print(f"Trying response selector: {selector}")
-                    elements = await self.page.query_selector_all(selector)
-                    print(f"Found {len(elements)} elements with selector: {selector}")
-                    
-                    if elements:
-                        # Get the last few elements to find the most recent response
-                        for element in elements[-3:]:  # Check last 3 elements
-                            try:
-                                text = await element.text_content()
-                                visible = await element.is_visible()
-                                print(f"  Element text: {text[:50] if text else 'None'}..., visible: {visible}")
-                                
-                                if text and visible and len(text.strip()) > 20:  # Filter for substantial responses
-                                    # Make sure it's not our own message
-                                    if "HI" not in text or len(text.strip()) > 50:
-                                        response_text = text
-                                        print(f"Found response with selector: {selector}")
-                                        break
-                            except:
-                                pass
+            # Use self-healing to find response elements with URL context
+            response_elements = []
+            
+            # Try to get all possible response elements using primary locator first
+            primary_response_locator = LocatorUtils.get_primary_response_locator(url)
+            primary_elements = await self.page.query_selector_all(primary_response_locator)
+            
+            if primary_elements:
+                response_elements.extend(primary_elements)
+            
+            # If primary doesn't work, try all fallbacks
+            if len(response_elements) < 2:  # Need at least 2 elements for Q&A
+                fallbacks = LocatorUtils.get_fallback_locators(primary_response_locator, 'response', url)
+                for fallback_locator in fallbacks:
+                    try:
+                        fallback_elements = await self.page.query_selector_all(fallback_locator)
+                        if fallback_elements:
+                            response_elements.extend(fallback_elements)
+                            break  # Stop after first successful fallback
+                    except:
+                        continue
+            
+            # Filter out placeholder text and UI elements
+            placeholder_texts = [
+                "Enter to send",
+                "Shift + Enter to newline",
+                "Enter to send; Shift + Enter to newline",
+                "Type a message",
+                "Type your message",
+                "Ask me anything",
+                "Send a message",
+                "Enter your prompt",
+                "Start typing..."
+            ]
+            
+            ui_elements = [
+                "Expand menu", "Use microphone", "New chat", "Edit prompt",
+                "Stop response", "Continue", "Regenerate", "Copy", "Share",
+                "Send", "Submit", "Clear", "Delete", "Edit"
+            ]
+            
+            # Find the most recent AI response (after sending current question)
+            if response_elements:
+                # Get all visible elements with substantial text
+                valid_responses = []
+                for element in response_elements:
+                    try:
+                        text = await element.text_content()
+                        visible = await element.is_visible()
                         
-                        if response_text:
-                            break
-                except Exception as e:
-                    print(f"  Error with selector {selector}: {e}")
-                    continue
+                        if text and visible and len(text.strip()) > 20:
+                            # Filter out placeholder text and UI elements
+                            text_clean = text.strip()
+                            is_placeholder = any(placeholder in text_clean for placeholder in placeholder_texts)
+                            is_ui_element = any(ui in text_clean for ui in ui_elements)
+                            
+                            if not is_placeholder and not is_ui_element:
+                                # Check if this is likely an AI response (not user message)
+                                is_user_message = text_clean.lower() == text.lower()  # Exact match to user question
+                                is_short_response = len(text_clean) < 30  # Very short, likely UI text
+                                
+                                if not is_user_message and not is_short_response:
+                                    # Get element position to find the most recent one
+                                    bounding_box = await element.bounding_box()
+                                    valid_responses.append({
+                                        'element': element,
+                                        'text': text_clean,
+                                        'length': len(text_clean),
+                                        'y_position': bounding_box['y'] if bounding_box else 0
+                                    })
+                                    print(f"  Valid AI response found: {text_clean[:50]}... (y: {bounding_box['y'] if bounding_box else 0})")
+                    except:
+                        pass
+                
+                # Get the response with the lowest y position (most recent/bottom of page)
+                if valid_responses:
+                    # Sort by y position (higher y = lower on page = more recent)
+                    valid_responses.sort(key=lambda x: x['y_position'], reverse=True)
+                    latest_response = valid_responses[0]['text']
+                    response_text = latest_response
+                    print(f"Found most recent AI response (y_position: {valid_responses[0]['y_position']})!")
+                    print(f"Response: {response_text[:100]}...")
             
             # If still no response, try to get all text content and parse
             if not response_text:
@@ -393,18 +336,36 @@ class BrowserOperations:
                     page_text = await self.page.evaluate('() => document.body.innerText')
                     print(f"Page text length: {len(page_text)}")
                     
-                    # Look for text that appears after "HI"
-                    if "HI" in page_text:
-                        parts = page_text.split("HI")
+                    # Look for text that appears after our question
+                    if text in page_text:
+                        parts = page_text.split(text)
                         if len(parts) > 1:
-                            # Get text after "HI" and clean it up
-                            after_hi = parts[-1].strip()
-                            lines = after_hi.split('\n')
+                            # Get text after our question and clean it up
+                            after_question = parts[-1].strip()
+                            lines = after_question.split('\n')
+                            
+                            # Find the longest meaningful line (likely AI response)
+                            valid_lines = []
                             for line in lines:
-                                if line.strip() and len(line.strip()) > 20:
-                                    response_text = line.strip()
-                                    print(f"Extracted response from page content: {response_text[:100]}...")
-                                    break
+                                line_clean = line.strip()
+                                if line_clean and len(line_clean) > 20:
+                                    # Filter out placeholder text and UI elements
+                                    is_placeholder = any(placeholder in line_clean for placeholder in placeholder_texts)
+                                    is_ui_element = any(ui in line_clean for ui in ui_elements)
+                                    is_user_message = line_clean.lower() == text.lower()
+                                    is_short_response = len(line_clean) < 30
+                                    
+                                    if not is_placeholder and not is_ui_element and not is_user_message and not is_short_response:
+                                        valid_lines.append({
+                                            'text': line_clean,
+                                            'length': len(line_clean)
+                                        })
+                            
+                            # Get the longest line (most likely AI response)
+                            if valid_lines:
+                                valid_lines.sort(key=lambda x: x['length'], reverse=True)
+                                response_text = valid_lines[0]['text']
+                                print(f"Extracted best AI response from page content: {response_text[:100]}...")
                 except Exception as e:
                     print(f"Error extracting from page content: {e}")
             
@@ -499,6 +460,82 @@ class BrowserOperations:
             print(f"Failed to save response to CSV: {e}")
             return False
         
+    async def find_element_with_healing(self, locator_type, primary_locator=None, url=None):
+        """
+        Find element using self-healing logic with URL-based auto-detection
+        
+        Args:
+            locator_type (str): Type of element ('input', 'send', 'response')
+            primary_locator (str): Primary locator to try first (optional)
+            url (str): URL for context-specific locators
+            
+        Returns:
+            element: Found element or None if not found
+        """
+        try:
+            # If no primary locator provided, get the URL-based one
+            if not primary_locator:
+                primary_locator = LocatorUtils.get_primary_input_locator(url) if locator_type == 'input' else \
+                           LocatorUtils.get_primary_send_button_locator(url) if locator_type == 'send' else \
+                           LocatorUtils.get_primary_response_locator(url)
+            
+            print(f"🎯 Trying primary {locator_type} locator: {primary_locator}")
+            
+            # Try primary locator first
+            elements = await self.page.query_selector_all(primary_locator)
+            if elements:
+                for element in elements:
+                    try:
+                        visible = await element.is_visible()
+                        if visible:
+                            print(f"✅ Primary {locator_type} locator found and visible!")
+                            return element
+                    except:
+                        continue
+            
+            print(f"❌ Primary {locator_type} locator failed, trying fallbacks...")
+            
+            # Get fallback locators with URL context
+            fallbacks = LocatorUtils.get_fallback_locators(primary_locator, locator_type, url)
+            
+            # Try each fallback locator
+            for i, fallback_locator in enumerate(fallbacks, 1):
+                print(f"🔄 Fallback {i}/{len(fallbacks)}: {fallback_locator}")
+                try:
+                    elements = await self.page.query_selector_all(fallback_locator)
+                    if elements:
+                        for element in elements:
+                            try:
+                                visible = await element.is_visible()
+                                if visible:
+                                    print(f"✅ Fallback {locator_type} locator found: {fallback_locator}")
+                                    return element
+                            except:
+                                continue
+                except Exception as e:
+                    print(f"⚠️ Fallback {i} failed: {e}")
+                    continue
+            
+            # If all specific locators fail, try generic fallbacks
+            print(f"❌ All {locator_type} locators failed, trying generic approach...")
+            generic_fallbacks = LocatorUtils.get_generic_fallbacks()
+            
+            for element in await self.page.query_selector_all(', '.join(generic_fallbacks)):
+                try:
+                    visible = await element.is_visible()
+                    if visible:
+                        print(f"✅ Generic {locator_type} element found!")
+                        return element
+                except:
+                    continue
+            
+            print(f"❌ No {locator_type} element found with any locator")
+            return None
+            
+        except Exception as e:
+            print(f"💥 Self-healing failed for {locator_type}: {e}")
+            return None
+    
     async def close_browser(self):
         """
         Close the browser and clean up resources
