@@ -2,3 +2,5 @@ Hi chatbot ?
 How are you doing ?
 What is the temperature today in Australia
 How many states are there in USA ?
+what is the capital of china
+Explain me the use of oxygen in human in two paragraphs

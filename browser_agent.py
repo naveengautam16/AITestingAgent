@@ -151,10 +151,10 @@ async def main():
             else:
                 print(f"⚠️ Skipping Question {i} due to error or no response")
             
-            # Wait a bit between questions to avoid overwhelming the chat
+            # Minimal wait between questions since we detect responses dynamically
             if i < len(questions):  # Don't wait after the last question
-                print("Waiting 3 seconds before next question...")
-                await agent.browser_ops.wait(3000)
+                print("Preparing next question...")
+                await agent.browser_ops.wait(100)  # Minimal wait for UI stability
         
         print(f"\n--- All Questions Processed ---")
         print(f"Total questions processed: {len(questions)}")
