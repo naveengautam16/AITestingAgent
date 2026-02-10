@@ -227,17 +227,129 @@ class BrowserOperations:
             raise
         
         try:
-            # Wait for response
-            print("Waiting for AI response...")
-            await self.page.wait_for_timeout(10000)  # Increased wait time to 10 seconds
+            # Wait for response to appear dynamically - with completion check
+            print("Waiting for AI response to appear...")
+            response_found = False
+            max_wait_time = 12000  # Increased to 12 seconds for complete responses
+            check_interval = 1000   # Check every 1 second
+            last_response_text = ""
+            stable_count = 0  # Count of consecutive checks with same response
             
-            # Check if page is still active
-            if self.page.is_closed():
-                raise Exception("Page was closed while waiting for response")
+            # Wait for initial response to appear
+            await self.page.wait_for_timeout(2000)  # Initial 2 second wait
             
-            # Additional wait to ensure response is fully loaded
-            print("Ensuring response is fully loaded...")
-            await self.page.wait_for_timeout(2000)
+            waited_time = 2000
+            
+            while waited_time < max_wait_time and not response_found:
+                print(f"Checking for response... (waited: {waited_time//1000}s)")
+                
+                # Try multiple approaches to find response
+                try:
+                    response_elements = []
+                    
+                    # Approach 1: Try primary locators
+                    primary_response_locator = LocatorUtils.get_primary_response_locator(url)
+                    primary_elements = await self.page.query_selector_all(primary_response_locator)
+                    
+                    if primary_elements:
+                        response_elements.extend(primary_elements)
+                    
+                    # Approach 2: Try fallback locators
+                    if len(response_elements) < 2:
+                        fallbacks = LocatorUtils.get_fallback_locators(primary_response_locator, 'response', url)
+                        for fallback_locator in fallbacks:
+                            try:
+                                fallback_elements = await self.page.query_selector_all(fallback_locator)
+                                if fallback_elements:
+                                    response_elements.extend(fallback_elements)
+                                    break
+                            except:
+                                continue
+                    
+                    # Approach 3: Try generic response locators
+                    if len(response_elements) < 2:
+                        generic_fallbacks = LocatorUtils.get_generic_fallbacks()
+                        for generic_locator in generic_fallbacks:
+                            try:
+                                generic_elements = await self.page.query_selector_all(generic_locator)
+                                if generic_elements:
+                                    response_elements.extend(generic_elements)
+                                    break
+                            except:
+                                continue
+                    
+                    # Check for valid response in all found elements - find most recent
+                    current_response_text = ""
+                    all_valid_responses = []
+                    
+                    for element in response_elements:
+                        try:
+                            text = await element.text_content()
+                            visible = await element.is_visible()
+                            
+                            if text and visible and len(text.strip()) > 15:
+                                text_clean = text.strip()
+                                
+                                # Less strict filtering for faster detection
+                                is_placeholder = any(placeholder in text_clean for placeholder in [
+                                    "Enter to send", "Shift + Enter", "Type a message", "Ask me anything"
+                                ])
+                                is_ui_element = any(ui in text_clean for ui in [
+                                    "Send", "Submit", "Copy", "Share", "Expand", "Menu"
+                                ])
+                                is_user_message = text_clean.lower() == text.lower()
+                                
+                                if not is_placeholder and not is_ui_element and not is_user_message:
+                                    # Get element position to find the most recent one
+                                    bounding_box = await element.bounding_box()
+                                    all_valid_responses.append({
+                                        'text': text_clean,
+                                        'y_position': bounding_box['y'] if bounding_box else 0
+                                    })
+                        except:
+                            continue
+                    
+                    # Find the most recent response (lowest y position = bottom of page)
+                    if all_valid_responses:
+                        # Sort by y position (higher y = lower on page = more recent)
+                        all_valid_responses.sort(key=lambda x: x['y_position'], reverse=True)
+                        current_response_text = all_valid_responses[0]['text']
+                        print(f"  Most recent response: {current_response_text[:50]}... (y: {all_valid_responses[0]['y_position']})")
+                    
+                    # Check if response is stable (not changing)
+                    if current_response_text:
+                        if current_response_text == last_response_text:
+                            stable_count += 1
+                            print(f"  Response stable for {stable_count} checks")
+                        else:
+                            stable_count = 0
+                            last_response_text = current_response_text
+                            print(f"  New response detected: {current_response_text[:50]}...")
+                        
+                        # Consider response stable after 3 consecutive checks
+                        if stable_count >= 3:
+                            response_found = True
+                            response_text = current_response_text
+                            print(f"✅ Response complete and stable: {response_text[:50]}...")
+                            break
+                    else:
+                        stable_count = 0
+                    
+                    if response_found:
+                        break
+                        
+                except:
+                    pass
+                
+                waited_time += check_interval
+                await self.page.wait_for_timeout(check_interval)
+                
+            if not response_found:
+                print("⚠️ No response found within timeout period")
+                return "No response captured"
+            
+            print("Response captured! Moving to next question...")
+            return response_text
             
             print(f"Trying to capture response...")
             response_text = ""
